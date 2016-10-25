@@ -25,6 +25,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <getopt.h>
 #include <stdlib.h>
+#include <ctime>
 
 #include <string>
 using namespace std;
@@ -38,24 +39,31 @@ using namespace std;
 #include <htl_main_utility.hpp>
 
 #define DefaultDelaySeconds 1.0
-#define DefaultRtmpUrl "rtmp://127.0.0.1:1935/live/livestream"
+#define DefaultRtmpUrl "rtmp://127.0.0.1:1935/live/livestream_{i}"
 
 int discovery_options(int argc, char** argv, 
     bool& show_help, bool& show_version, string& url, int& threads, 
-    double& startup, double& delay, double& error, double& report, int& count
+    double& startup, double& delay, double& error, double& report, int& count,
+		int &streamcount
 ){
     int ret = ERROR_SUCCESS;
     
     static option long_options[] = {
         SharedOptions()
+        {"streamcount", required_argument, 0, 'n'},
         {0, 0, 0, 0}
     };
     
     int opt = 0;
     int option_index = 0;
-    while((opt = getopt_long(argc, argv, "hvc:r:t:s:d:e:m:", long_options, &option_index)) != -1){
+    while((opt = getopt_long(argc, argv, "hvc:r:t:s:d:e:m:n:", long_options, &option_index)) != -1){
         switch(opt){
             ProcessSharedOptions()
+
+            case 'n':
+                streamcount = atoi(optarg);
+                break;
+
             default:
                 show_help = true;
                 break;
@@ -112,8 +120,9 @@ int main(int argc, char** argv){
     string url; int threads = DefaultThread; 
     double start = DefaultStartupSeconds, delay = DefaultDelaySeconds, error = DefaultErrorSeconds;
     double report = DefaultReportSeconds; int count = DefaultCount;
+		int streamcount = 0;
     
-    if((ret = discovery_options(argc, argv, show_help, show_version, url, threads, start, delay, error, report, count)) != ERROR_SUCCESS){
+    if((ret = discovery_options(argc, argv, show_help, show_version, url, threads, start, delay, error, report, count, streamcount)) != ERROR_SUCCESS){
         Error("discovery options failed. ret=%d", ret);
         return ret;
     }
@@ -134,22 +143,37 @@ int main(int argc, char** argv){
         return ret;
     }
 
+		srand(time(0));
+
     for(int i = 0; i < threads; i++){
         StRtmpTask* task = new StRtmpTask();
 
-        if((ret = task->Initialize(url, start, delay, error, count)) != ERROR_SUCCESS){
+				std::string _url = url;
+        size_t pos = std::string::npos;
+        if ((pos = _url.find("{i}")) != std::string::npos) {
+					int ri = i;
+					if (streamcount != 0) {
+						ri = rand()%streamcount;
+					}
+					char index[16];
+					snprintf(index, sizeof(index), "%d", ri);
+					std::string _index = index;
+					_url = _url.replace(pos, 3, _index);
+        }
+
+        if((ret = task->Initialize(_url, start, delay, error, count)) != ERROR_SUCCESS){
             Error("initialize task failed, url=%s, ret=%d", url.c_str(), ret);
             return ret;
         }
-        
+
         if((ret = farm.Spawn(task)) != ERROR_SUCCESS){
             Error("st farm spwan task failed, ret=%d", ret);
             return ret;
         }
     }
-    
+
     farm.WaitAll();
-    
+
     return 0;
 }
 
